@@ -1,0 +1,20 @@
+services:
+  crawler:
+    build:
+      # Local checkout by default, so the image can be built before the
+      # repository is published. Set BUILD_CONTEXT to a remote Git context
+      # (for example "https://github.com/<owner>/<repo>.git#main") to build
+      # from the pushed source instead.
+      context: "${BUILD_CONTEXT:-.}"
+      dockerfile: Dockerfile
+    image: scrapy-hotlist-crawler:latest
+    pull_policy: build
+    init: true
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      SCRAPY_SETTINGS_MODULE: scrapy_hotlist_crawler.settings
+    command: ["/app/run-scheduled-spiders.sh"]
+    stop_grace_period: 30s
