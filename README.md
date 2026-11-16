@@ -30,13 +30,15 @@ scrapy-hotList-crawler/
 
 ## 2. 服务器准备
 
-安装 Docker Engine 与 Compose Plugin，把项目放到服务器上：
+安装 Docker Engine 与 Compose Plugin，并克隆已发布的仓库：
 
 ```bash
 cd /opt
-# 通过 git clone、上传压缩包或其他方式取得项目
-cd /opt/scrapy-hotList-crawler
+git clone https://github.com/duzqiu/scrapy-hotList-crawler.git
+cd scrapy-hotList-crawler
 ```
+
+服务器上的代码只用于放置 `.env` 和 `compose.yaml`；镜像由 Docker 从 GitHub 拉取的提交构建，两者最终一致即可。
 
 ## 3. 配置环境变量
 
@@ -51,17 +53,23 @@ vi .env
 | 变量 | 说明 | 默认 |
 | --- | --- | --- |
 | `TZ` | 容器时区 | `Asia/Shanghai` |
-| `BUILD_CONTEXT` | 构建上下文，`.` 表示当前代码 | `.` |
+| `GIT_REPOSITORY` | 构建时拉取的仓库地址 | `https://github.com/duzqiu/scrapy-hotList-crawler.git` |
+| `GIT_REF` | 构建时使用的分支、tag 或 commit | `main` |
 | `CRAWL_INTERVAL_MIN_SECONDS` | 每轮最短间隔（秒） | `1800` |
 | `CRAWL_INTERVAL_MAX_SECONDS` | 每轮最长间隔（秒） | `5400` |
+| `SCRAPY_PERSISTENCE_ENABLED` | 是否写入 PostgreSQL / Redis | `false` |
+| `PG_HOST` / `PG_PORT` | PostgreSQL 地址与端口 | `192.168.31.201` / `5452` |
+| `PG_DATABASE` / `PG_USER` / `PG_PASSWORD` | 数据库、用户、密码 | `admin_db` / `postgres` / 示例密码 |
+| `PG_CONNECT_TIMEOUT` | PostgreSQL 连接超时（秒） | `10` |
+| `REDIS_URL` | Redis 连接串，用于去重 | `redis://192.168.31.201:6379/0` |
+| `REDIS_CONNECT_TIMEOUT` / `REDIS_SOCKET_TIMEOUT` | Redis 连接与读写超时（秒） | `10` |
+| `REDIS_DEDUPE_TTL` | 去重键保留时间（秒） | `2592000` |
 
-如果代码已经推到 GitHub，可以把 `BUILD_CONTEXT` 改成远程 Git 上下文，让 Docker 直接拉取指定分支，例如：
+`SCRAPY_PERSISTENCE_ENABLED=true` 时走数据库写入与 Redis 去重；`false` 时不连接任何外部服务，条目只输出到日志。示例中的密码仅占位，生产环境必须替换。
 
-```dotenv
-BUILD_CONTEXT=https://github.com/<owner>/scrapy-hotList-crawler.git#main
-```
+Compose 会把 `GIT_REPOSITORY` 和 `GIT_REF` 拼成远程 Git 构建上下文，Docker 直接从 GitHub 获取 Dockerfile、requirements 和爬虫源码，**不读取服务器上的本地文件**。因此改完代码必须先提交并推送，再执行构建。
 
-生产环境建议把它固定成 tag 或 commit，保证版本可复现。
+生产环境建议把 `GIT_REF` 固定成 tag 或 commit，保证版本可复现。
 
 ## 4. 构建并启动
 
@@ -120,16 +128,29 @@ docker compose run --rm --no-deps crawler scrapy crawl <spider_name>
 | `name` | 该条热榜的标题 | `泽连斯基再指责SpaceX` |
 | `heat` | 条目热度，保留站点原始值，缺失为 `None` | `128.6万` |
 | `tags` | 条目徽标文字，如「热」「新」；无徽标为 `[]` | `["热"]` |
+| `rank` | 页面展示的排名，原样保留字符串：可跳号、首条可不为 1；图标代替序号时为图标含义；不展示排名为 `None` | `"2"`、`"置顶"` |
 
 ## 10. 持久化说明
 
-当前未启用 Pipeline，抓取结果只打印在容器日志里，也不连接任何数据库。后续接入 PostgreSQL 或 Redis 时：
+`.env` 中已经预留数据库开关和连接参数：
 
-1. 在 `pipelines.py` 中实现 Pipeline；
-2. 在 `settings.py` 的 `ITEM_PIPELINES` 注册；
-3. 在 `.env.example` 与 `requirements.txt` 中补充数据库客户端和连接变量。
+```dotenv
+SCRAPY_PERSISTENCE_ENABLED=false
+PG_HOST=192.168.31.201
+PG_PORT=5452
+PG_DATABASE=admin_db
+PG_USER=postgres
+PG_PASSWORD=123456
+REDIS_URL=redis://192.168.31.201:6379/0
+```
 
-Docker 和 Compose 配置不需要为此改动。
+目前 `pipelines.py` 仍是空模板，没有任何代码读取这些变量，所以无论开关取值如何，抓取结果都只打印在容器日志里。要让配置真正生效，需要：
+
+1. 在 `pipelines.py` 中实现读取 `SCRAPY_PERSISTENCE_ENABLED` 的 Pipeline；
+2. 在 `settings.py` 的 `ITEM_PIPELINES` 注册该 Pipeline；
+3. 在 `requirements.txt` 中加入 `psycopg[binary]` 和 `redis`。
+
+Docker 与 Compose 已通过 `env_file` 注入全部变量，届时无需改动部署文件。
 
 ## 11. 本地（非 Docker）运行
 

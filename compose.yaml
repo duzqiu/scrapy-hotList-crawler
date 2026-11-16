@@ -1,11 +1,10 @@
 services:
   crawler:
     build:
-      # Local checkout by default, so the image can be built before the
-      # repository is published. Set BUILD_CONTEXT to a remote Git context
-      # (for example "https://github.com/<owner>/<repo>.git#main") to build
-      # from the pushed source instead.
-      context: "${BUILD_CONTEXT:-.}"
+      # Docker fetches the pushed Git context, so the image always matches the
+      # committed source. Commit and push Dockerfile, requirements and scripts
+      # before deploying.
+      context: "${GIT_REPOSITORY:-https://github.com/duzqiu/scrapy-hotList-crawler.git}#${GIT_REF:-main}"
       dockerfile: Dockerfile
     image: scrapy-hotlist-crawler:latest
     pull_policy: build

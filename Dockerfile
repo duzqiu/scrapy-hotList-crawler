@@ -1,6 +1,5 @@
-# Build context defaults to this directory (see compose.yaml). When the
-# repository is published, BUILD_CONTEXT may point at a remote Git context and
-# Docker will fetch these files directly.
+# Compose uses the published GitHub repository as the build context, so Docker
+# fetches the committed source directly and no Git client is needed in the image.
 FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
