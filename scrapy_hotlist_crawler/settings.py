@@ -69,9 +69,10 @@ DEFAULT_REQUEST_HEADERS = {
 
 # Configure item pipelines
 # See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
-#ITEM_PIPELINES = {
-#    "scrapy_hotlist_crawler.pipelines.ScrapyHotlistCrawlerPipeline": 300,
-#}
+# 所有 Spider 共用一个 Pipeline；是否真正写库由 SCRAPY_PERSISTENCE_ENABLED 决定。
+ITEM_PIPELINES = {
+    "scrapy_hotlist_crawler.pipelines.PostgreSQLPipeline": 300,
+}
 
 # Enable and configure the AutoThrottle extension (disabled by default)
 # See https://docs.scrapy.org/en/latest/topics/autothrottle.html

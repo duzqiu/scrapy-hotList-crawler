@@ -57,15 +57,12 @@ vi .env
 | `GIT_REF` | 构建时使用的分支、tag 或 commit | `main` |
 | `CRAWL_INTERVAL_MIN_SECONDS` | 每轮最短间隔（秒） | `1800` |
 | `CRAWL_INTERVAL_MAX_SECONDS` | 每轮最长间隔（秒） | `5400` |
-| `SCRAPY_PERSISTENCE_ENABLED` | 是否写入 PostgreSQL / Redis | `false` |
+| `SCRAPY_PERSISTENCE_ENABLED` | 是否写入 PostgreSQL | `false` |
 | `PG_HOST` / `PG_PORT` | PostgreSQL 地址与端口 | `192.168.31.201` / `5452` |
 | `PG_DATABASE` / `PG_USER` / `PG_PASSWORD` | 数据库、用户、密码 | `admin_db` / `postgres` / 示例密码 |
 | `PG_CONNECT_TIMEOUT` | PostgreSQL 连接超时（秒） | `10` |
-| `REDIS_URL` | Redis 连接串，用于去重 | `redis://192.168.31.201:6379/0` |
-| `REDIS_CONNECT_TIMEOUT` / `REDIS_SOCKET_TIMEOUT` | Redis 连接与读写超时（秒） | `10` |
-| `REDIS_DEDUPE_TTL` | 去重键保留时间（秒） | `2592000` |
 
-`SCRAPY_PERSISTENCE_ENABLED=true` 时走数据库写入与 Redis 去重；`false` 时不连接任何外部服务，条目只输出到日志。示例中的密码仅占位，生产环境必须替换。
+`SCRAPY_PERSISTENCE_ENABLED=true` 时写入 PostgreSQL；`false` 时不连接数据库，条目只打印到日志。示例中的密码仅占位，生产环境必须替换。
 
 Compose 会把 `GIT_REPOSITORY` 和 `GIT_REF` 拼成远程 Git 构建上下文，Docker 直接从 GitHub 获取 Dockerfile、requirements 和爬虫源码，**不读取服务器上的本地文件**。因此改完代码必须先提交并推送，再执行构建。
 
@@ -132,25 +129,57 @@ docker compose run --rm --no-deps crawler scrapy crawl <spider_name>
 
 ## 10. 持久化说明
 
-`.env` 中已经预留数据库开关和连接参数：
+`pipelines.PostgreSQLPipeline` 已注册为全局 Pipeline，所有 Spider 共用；是否真正落库只看 `.env` 的 `SCRAPY_PERSISTENCE_ENABLED`：
 
-```dotenv
-SCRAPY_PERSISTENCE_ENABLED=false
-PG_HOST=192.168.31.201
-PG_PORT=5452
-PG_DATABASE=admin_db
-PG_USER=postgres
-PG_PASSWORD=123456
-REDIS_URL=redis://192.168.31.201:6379/0
+- `false`：不连接 PostgreSQL，条目以 JSON 打印到日志；
+- `true`：写入 backend 项目建好的 `article_hot_list_info` 表，去重完全由 SQL 完成。
+
+### 10.1 字段映射
+
+| Item | 表列 | 说明 |
+| --- | --- | --- |
+| `source` | `source` | 渠道，如 `baidu` |
+| `name` | `name` | 条目标题 |
+| `heat` | `heat` | 原始热度文本，缺失为 `NULL` |
+| `tags` | `tags` | 徽标数组，写入 JSON，缺省 `[]` |
+| `rank` | `rank` | 页面展示的排名原样保存，缺失为 `NULL` |
+
+`created_at` / `updated_at` 由 Pipeline 写入 UTC 时间；`is_active` 由 Pipeline 维护，见下一节。
+
+### 10.2 去重、刷新与停用
+
+去重键是 `(source, name)`，数据库上有同名唯一索引 `ux_article_hot_list_info_source_name`，爬虫用一条 upsert 完成「存在则更新、不存在则插入」：
+
+```sql
+INSERT INTO article_hot_list_info
+    (source, name, heat, tags, rank, is_active, created_at, updated_at)
+VALUES (%s, %s, %s, %s::json, %s, TRUE, %s, %s)
+ON CONFLICT (source, name) DO UPDATE
+SET heat = EXCLUDED.heat,
+    tags = EXCLUDED.tags,
+    rank = EXCLUDED.rank,
+    is_active = TRUE,
+    updated_at = EXCLUDED.updated_at;
 ```
 
-目前 `pipelines.py` 仍是空模板，没有任何代码读取这些变量，所以无论开关取值如何，抓取结果都只打印在容器日志里。要让配置真正生效，需要：
+由唯一索引兜底，所以同一渠道下同一标题只会保留一行，重复跑多少轮、甚至多实例并发都不会写出重复数据。
 
-1. 在 `pipelines.py` 中实现读取 `SCRAPY_PERSISTENCE_ENABLED` 的 Pipeline；
-2. 在 `settings.py` 的 `ITEM_PIPELINES` 注册该 Pipeline；
-3. 在 `requirements.txt` 中加入 `psycopg[binary]` 和 `redis`。
+每个 Spider 抓完后，`close_spider` 会把**本轮没再出现**的同渠道条目置为 `is_active = false`：
 
-Docker 与 Compose 已通过 `env_file` 注入全部变量，届时无需改动部署文件。
+- 不删除，历史数据保留，后台仍能查看 / 编辑；
+- 只影响本轮真正抓到数据的渠道（一条都没抓到的渠道不会误停用）；
+- 重新出现在榜单里的条目，下一轮抓取会自动恢复为 `true`。
+
+前台接口 `GET /hot-lists` 与 `/hot-lists/sources` 只返回 / 只统计 `is_active = true` 的条目。
+
+### 10.3 部署前提
+
+目标库需已由 backend 的 `create_all()` 建出 `article_hot_list_info`，并且 `(source, name)` 的唯一索引存在：
+它由 backend 启动时的 `sync_missing_indexes()` 自动创建。**先更新并启动 backend，再跑爬虫**，
+否则 upsert 会因缺少唯一约束报错。`requirements.txt` 只包含 `psycopg[binary]`，不依赖 Redis。
+
+backend 老库的 `tabs` 废弃列会被启动时的 `sync_dropped_columns()` 直接删除，
+`tags` 与 `is_active` 由 `sync_missing_columns()` 补齐，重建镜像重启即可，不需要手工迁移。
 
 ## 11. 本地（非 Docker）运行
 
