@@ -115,6 +115,7 @@ docker compose run --rm --no-deps crawler scrapy crawl <spider_name>
 | --- | --- | --- | --- |
 | `baidu_hotlist` | `top.baidu.com/board?tab=realtime` | `baidu` | 百度热搜榜，含「置顶」图标条目 |
 | `toutiao_hotlist` | `www.toutiao.com/hot-event/hot-board/` | `toutiao` | 头条热榜，接口一次返回 50 条 + 1 条置顶 |
+| `sina_hotlist` | `newsapp.sina.cn/api/hotlist` | `sina` | 新浪热榜主榜（仅「新浪热榜」页签），按标题去重后约 44 条 |
 
 新增 Spider 时，把文件放到 `scrapy_hotlist_crawler/spiders/`，`scrapy list` 会自动发现，脚本按顺序逐个执行，无需改动 Dockerfile 或 Compose。
 
