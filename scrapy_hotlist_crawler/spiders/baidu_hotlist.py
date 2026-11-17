@@ -3,6 +3,7 @@
 import scrapy
 
 from scrapy_hotlist_crawler.items import ScrapyHotlistCrawlerItem
+from scrapy_hotlist_crawler.tags import normalize_tags
 
 
 class BaiduHotlistSpider(scrapy.Spider):
@@ -72,7 +73,7 @@ class BaiduHotlistSpider(scrapy.Spider):
                 for alt in card.css(f"{self.TAG_SELECTOR} img::attr(alt)").getall()
                 if alt and alt.strip()
             ]
-        return tags
+        return normalize_tags(tags)
 
     @staticmethod
     def clean_text(value):

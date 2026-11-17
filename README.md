@@ -109,11 +109,14 @@ docker compose run --rm crawler /app/run-all-spiders.sh
 docker compose run --rm --no-deps crawler scrapy crawl <spider_name>
 ```
 
-## 8. 新增 Spider
+## 8. 已有 Spider
 
-把 Spider 文件放到 `scrapy_hotlist_crawler/spiders/`，`scrapy list` 会自动发现，脚本按顺序逐个执行，无需改动 Dockerfile 或 Compose。
+| Spider | 数据源 | 渠道（`source`） | 说明 |
+| --- | --- | --- | --- |
+| `baidu_hotlist` | `top.baidu.com/board?tab=realtime` | `baidu` | 百度热搜榜，含「置顶」图标条目 |
+| `toutiao_hotlist` | `www.toutiao.com/hot-event/hot-board/` | `toutiao` | 头条热榜，接口一次返回 50 条 + 1 条置顶 |
 
-当前项目还没有具体站点的 Spider，`run-all-spiders.sh` 在发现 0 个 Spider 时会报错退出，这是预期行为。
+新增 Spider 时，把文件放到 `scrapy_hotlist_crawler/spiders/`，`scrapy list` 会自动发现，脚本按顺序逐个执行，无需改动 Dockerfile 或 Compose。
 
 ## 9. Item 字段
 
@@ -124,7 +127,7 @@ docker compose run --rm --no-deps crawler scrapy crawl <spider_name>
 | `source` | 榜单渠道 | `中国新闻网` |
 | `name` | 该条热榜的标题 | `泽连斯基再指责SpaceX` |
 | `heat` | 条目热度，保留站点原始值，缺失为 `None` | `128.6万` |
-| `tags` | 条目徽标文字，如「热」「新」；无徽标为 `[]` | `["热"]` |
+| `tags` | 含「热」的长标签归一为 `热`（如「热门事件」），含「新」的归一为 `新`（如「新事件上榜」）；其余标签（「辟谣」「解读」等）保留原文；无标签为 `[]` | `["热"]`、`["辟谣"]` |
 | `rank` | 页面展示的排名，原样保留字符串：可跳号、首条可不为 1；图标代替序号时为图标含义；不展示排名为 `None` | `"2"`、`"置顶"` |
 
 ## 10. 持久化说明
@@ -141,7 +144,7 @@ docker compose run --rm --no-deps crawler scrapy crawl <spider_name>
 | `source` | `source` | 渠道，如 `baidu` |
 | `name` | `name` | 条目标题 |
 | `heat` | `heat` | 原始热度文本，缺失为 `NULL` |
-| `tags` | `tags` | 徽标数组，写入 JSON，缺省 `[]` |
+| `tags` | `tags` | 徽标数组：含热 / 新的长标签归一，其余保留原文，写入 JSON |
 | `rank` | `rank` | 页面展示的排名原样保存，缺失为 `NULL` |
 
 `created_at` / `updated_at` 由 Pipeline 写入 UTC 时间；`is_active` 由 Pipeline 维护，见下一节。

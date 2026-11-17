@@ -20,6 +20,8 @@ import psycopg
 from itemadapter import ItemAdapter
 from scrapy.exceptions import DropItem
 
+from scrapy_hotlist_crawler.tags import normalize_tags
+
 TABLE_NAME = "article_hot_list_info"
 
 
@@ -114,7 +116,7 @@ class PostgreSQLPipeline:
 
         heat = self._text(adapter.get("heat"), 50)
         rank = self._text(adapter.get("rank"), 20)
-        tags = [str(tag) for tag in (adapter.get("tags") or [])]
+        tags = normalize_tags(adapter.get("tags"))
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         self.seen.setdefault(source, set()).add(name)
 
